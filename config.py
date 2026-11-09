@@ -1,6 +1,6 @@
 """
 Configuration and Technical Candidate Profile Specification.
-Contains filtering rules, technical skills, and candidate metadata for Selim Sarıkaya.
+Includes strict graduation/off-cycle exclusions and candidate preferences.
 """
 
 USER_PROFILE = {
@@ -34,39 +34,50 @@ USER_PROFILE = {
         "docker", "git", "github", "containerization", "rest api"
     ],
 
-    # Allowed role keywords in job titles to ensure student/intern level relevance
+    # Secondary languages: acceptable ONLY IF Python is also supported as an alternative
+    "unpreferred_languages": ["c#", ".net", "golang", "ruby", "rust"],
+
+    # Mandatory title keywords to enforce student/intern scope
     "mandatory_title_keywords": [
         "intern", "internship", "trainee", "praktikum", "praktikant", "student", 
         "working student", "werkstudent", "junior", "engineer", "developer", 
         "machine learning", "ml", "ai", "data", "software", "research"
     ],
 
-    # Excluded keywords: Filters out senior positions, irrelevant fields, and off-cycle / long-term dates
+    # Hard blacklist: Exclude thesis/graduation roles, off-cycle spring starts, and senior roles
     "blacklist_keywords": [
-        # Off-cycle spring start dates and long commitments (incompatible with academic calendar)
-        "february", "feb 2027", "spring 2027", "start: february", "starting in february",
+        # Dutch/German thesis and graduation projects (incompatible with 3-month summer internship)
+        "graduation assignment", "graduation project", "graduation thesis", 
+        "afstudeerstage", "afstuderen", "master thesis", "bachelor thesis", 
+        "master's thesis", "diplomarbeit", "thesis internship", "thesis project",
+
+        # Off-cycle spring/winter start dates and long commitments
+        "january", "february", "march", "april", "spring 2027", "winter 2027",
+        "start: february", "starting in february", "start: march", "starting in march",
         "6 months", "six months", "full year", "12 months", "one year",
+
         # Non-engineering and operational departments
         "social media", "marketing", "sales", "recruiter", "talent acquisition",
         "human resources", "compliance", "accountant", "receptionist", "content creator",
+
         # Seniority and tenure levels unsuitable for undergraduates
         "phd", "doctorate", "postdoc", "senior", "lead", "principal", "staff engineer",
         "5+ years", "7+ years", "10+ years"
     ],
 
-    # Target keywords for preferred summer internship window (June - September/October 2027)
+    # Priority target summer keywords (June - September/October window)
     "summer_boost_keywords": [
         "summer", "summer 2027", "june", "july", "august", "3 months", "three months", "summer intern"
     ],
 
-    # Priority target locations across Europe and remote ecosystems
+    # Regional target locations across Europe and remote ecosystems
     "allowed_locations": [
         "remote", "europe", "germany", "deutschland", "netherlands", "amsterdam",
         "berlin", "munich", "worldwide", "eu", "anywhere", "switzerland", "austria"
     ]
 }
 
-# Emulated browser headers to avoid automated scraping rejections
+# Emulated browser headers to avoid automated scraping blocks
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
