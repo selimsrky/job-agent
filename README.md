@@ -16,3 +16,10 @@ job-agent/
 ├── main.py         # Orchestrator and HTML report generator
 ├── requirements.txt
 └── README.md
+
+## Filtering & Scoring Logic
+
+- **Academic Calendar Guard:** Automatically discards off-cycle spring/winter start dates (February, March, 6 months) and Dutch/German graduation thesis assignments (Afstudeerstage, Master's Thesis).
+- **Conditional Language Matching:** Secondary languages (e.g., C#, Rust) are permitted only when Python is also listed as an accepted stack.
+- **Weighted Alignment Score:** Ranks opportunities (0–100%) based on core ML/Audio competencies (PyTorch, Whisper, Librosa, Docker) and Summer 2027 keywords.
+
