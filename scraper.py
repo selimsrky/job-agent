@@ -1,101 +1,111 @@
 """
-Deep Scraper Module: Ingests listings and fetches full requirement descriptions via LinkedIn Guest API.
+Scraper Module: Gathers postings using a hybrid approach.
+Integrates authenticated LinkedIn scraping via Playwright.
 """
 import requests
 import time
-import re
-from bs4 import BeautifulSoup
+import os
+import json
+from dotenv import load_dotenv
 from config import HEADERS
+from playwright.sync_api import sync_playwright
 
-def fetch_job_full_description(job_id):
-    """
-    Fetches the full inner text (About the job & Requirements) using LinkedIn's public job detail endpoint.
-    """
-    detail_url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
-    try:
-        resp = requests.get(detail_url, headers=HEADERS, timeout=8)
-        if resp.status_code == 200:
-            soup = BeautifulSoup(resp.text, "html.parser")
-            # LinkedIn stores the entire description inside this container
-            desc_div = soup.find("div", class_=lambda x: x and "show-more-less-html__markup" in x)
-            if desc_div:
-                return desc_div.get_text(" ", strip=True)
-    except Exception as exc:
-        print(f"[-] Failed fetching description for job {job_id}: {exc}")
-    return ""
+load_dotenv()
 
-def fetch_linkedin_internships(limit_per_query=8):
-    """
-    Collects fresh ML/AI internship postings and inspects their full requirements.
-    """
+def fetch_jobs_from_feed(limit=30):
     jobs = []
-    search_queries = [
-        {"keywords": "Machine Learning Intern", "location": "Germany"},
-        {"keywords": "AI Intern", "location": "Netherlands"},
-        {"keywords": "Speech Machine Learning", "location": "Europe"}
-    ]
+    
+    # 1. Remotive & Arbeitnow (Fast open APIs via standard requests)
+    try:
+        resp = requests.get("https://remotive.com/api/remote-jobs?category=software-dev&limit=10", headers=HEADERS, timeout=10)
+        if resp.status_code == 200:
+            for item in resp.json().get("jobs", []):
+                jobs.append({
+                    "title": item.get("title", ""), "company": item.get("company_name", ""),
+                    "location": item.get("candidate_required_location", ""), "url": item.get("url", "#"),
+                    "description": item.get("description", ""), "source": "Remotive"
+                })
+    except:
+        pass
 
-    for item in search_queries:
+    try:
+        resp = requests.get("https://www.arbeitnow.com/api/job-board-api", headers=HEADERS, timeout=10)
+        if resp.status_code == 200:
+            for item in resp.json().get("data", [])[:10]:
+                jobs.append({
+                    "title": item.get("title", ""), "company": item.get("company_name", ""),
+                    "location": item.get("location", ""), "url": item.get("url", "#"),
+                    "description": item.get("description", ""), "source": "Arbeitnow"
+                })
+    except:
+        pass
+
+    # =======================================================
+    # PLAYWRIGHT (LINKEDIN INFILTRATION)
+    # =======================================================
+    linkedin_cookie = os.getenv("LINKEDIN_SESSION_COOKIE")
+    
+    if linkedin_cookie:
+        print("[*] Firing up Playwright for authenticated LinkedIn scraping...")
         try:
-            # f_TPR=r604800 (Last 7 days), f_E=1 (Internship level)
-            url = (
-                f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?"
-                f"keywords={item['keywords'].replace(' ', '%20')}&location={item['location']}"
-                f"&f_TPR=r604800&f_E=1&start=0"
-            )
-            response = requests.get(url, headers=HEADERS, timeout=10)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, "html.parser")
-                job_elements = soup.find_all("li")
+            with sync_playwright() as p:
+                # headless=True runs the browser silently in the background
+                browser = p.chromium.launch(headless=True) 
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                    viewport={'width': 1280, 'height': 720}
+                )
                 
-                count = 0
-                for el in job_elements:
-                    if count >= limit_per_query:
-                        break
-
-                    title_elem = el.find("h3", class_="base-search-card__title")
-                    company_elem = el.find("h4", class_="base-search-card__subtitle")
-                    location_elem = el.find("span", class_="job-search-card__location")
-                    link_elem = el.find("a", class_="base-card__full-link", href=True)
-
-                    if title_elem and link_elem:
-                        job_link = link_elem["href"].split("?")[0]
+                # Inject the session cookie to bypass login and Cloudflare
+                context.add_cookies([{
+                    "name": "li_at",
+                    "value": linkedin_cookie,
+                    "domain": ".linkedin.com",
+                    "path": "/"
+                }])
+                
+                page = context.new_page()
+                
+                # Search query: Machine Learning Intern in Europe (Past month)
+                search_url = "https://www.linkedin.com/jobs/search/?keywords=Machine%20Learning%20Intern&location=Europe&f_TPR=r2592000"
+                print("    -> Navigating to LinkedIn Jobs directory...")
+                page.goto(search_url, wait_until="domcontentloaded")
+                time.sleep(4) # Allow DOM elements to fully render
+                
+                print("    -> Extracting job cards from the feed...")
+                # Locate job cards based on LinkedIn's current HTML structure
+                job_cards = page.locator(".job-card-container").all()[:10] 
+                
+                for card in job_cards:
+                    try:
+                        # Click the card to load the full description in the right-side panel
+                        card.click()
+                        time.sleep(2)
                         
-                        # Extract numerical Job ID from URL or attributes
-                        job_id_match = re.search(r'(\d{9,11})', job_link)
-                        full_description = ""
+                        title = card.locator(".job-card-list__title").inner_text(timeout=2000)
+                        company = card.locator(".job-card-container__primary-description").inner_text(timeout=2000)
                         
-                        if job_id_match:
-                            job_id = job_id_match.group(1)
-                            # Deep scraping: Read the actual requirements section
-                            time.sleep(1.0)  # Rate-limiting pause to stay completely safe
-                            full_description = fetch_job_full_description(job_id)
-
-                        # If detail fetch failed, fallback to title text
-                        if not full_description:
-                            full_description = title_elem.get_text(strip=True)
-
+                        # Extract the full job description from the right panel for ML skill matching
+                        desc_box = page.locator("#job-details")
+                        description = desc_box.inner_text(timeout=2000) if desc_box.count() > 0 else ""
+                        
                         jobs.append({
-                            "title": title_elem.get_text(strip=True),
-                            "company": company_elem.get_text(strip=True) if company_elem else "Tech Enterprise",
-                            "location": location_elem.get_text(strip=True) if location_elem else item["location"],
-                            "url": job_link,
-                            "description": full_description,  # Now contains full requirements!
-                            "source": "LinkedIn (Verified Requirements)"
+                            "title": title.strip(),
+                            "company": company.strip(),
+                            "location": "Europe (LinkedIn)",
+                            "url": search_url,
+                            "description": description.strip(),
+                            "source": "LinkedIn"
                         })
-                        count += 1
+                    except Exception as e:
+                        # Skip minor extraction errors and proceed to the next card silently
+                        continue 
+                
+                print(f"    [+] LinkedIn extraction complete. Grabbed target postings.")
+                browser.close()
+        except Exception as e:
+            print(f"[-] Playwright LinkedIn error: {e}")
+    else:
+        print("[-] Notice: LINKEDIN_SESSION_COOKIE not found in .env, skipping LinkedIn.")
 
-            time.sleep(1.5)
-        except Exception as exc:
-            print(f"[-] LinkedIn ingestion warning: {exc}")
-            
-    return jobs
-
-def fetch_jobs_from_feed():
-    """
-    Coordinates multi-source collection with deep requirement inspection.
-    """
-    print("[*] Ingesting verified postings and reading requirements from LinkedIn...")
-    jobs = fetch_linkedin_internships()
-    print(f"[+] Successfully parsed {len(jobs)} complete listings.")
     return jobs
